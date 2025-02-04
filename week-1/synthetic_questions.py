@@ -1,4 +1,5 @@
 import asyncio
+import braintrust
 import instructor
 import kagglehub
 import logging
@@ -18,6 +19,11 @@ load_dotenv()
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 client = instructor.from_openai(openai.OpenAI())
+
+dataset = braintrust.init_dataset(
+    project="Netflix-Shows",
+    name="Synthetic-Questions",
+)
 
 def load_netflix_data() -> pd.DataFrame:
     path = kagglehub.dataset_download("shivamb/netflix-shows")
@@ -142,5 +148,10 @@ async def main(
 if __name__ == '__main__':
     df = load_netflix_data()
     chunks = [create_netflix_chunk(row) for index, row in df.iterrows()]
-    results = asyncio.run(main(concurrency_limit=10, num_samples=2, limit=10))
-    print(results)
+    questions = asyncio.run(main(concurrency_limit=10, num_samples=2, limit=100))
+    for question in questions:
+        dataset.insert(
+            input=question.question,
+            expected=[question.question],
+            metadata={"show_id": question.show_id, "chunk": question.chunk},
+        )
