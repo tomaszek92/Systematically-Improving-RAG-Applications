@@ -1,0 +1,9 @@
+asyncio
+braintrust
+instructor
+kagglehub
+openai
+pydantic
+python-dotenv
+rich
+tenacity
