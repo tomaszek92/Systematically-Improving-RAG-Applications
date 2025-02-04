@@ -31,6 +31,7 @@ def load_netflix_data() -> pd.DataFrame:
 class NetflixChunk(BaseModel):
     show_id: str
     title: str
+    type: str = ''  # new field for movie type (e.g., Movie or TV Show)
     director: str = ''
     cast: str = ''
     country: str = ''
@@ -56,6 +57,7 @@ def create_netflix_chunk(row) -> NetflixChunk:
 
     return NetflixChunk(
         show_id=str(row["show_id"]),
+        type=safe_str(row.get("type", "")),
         title=safe_str(row["title"]),
         director=safe_str(row.get("director", "")),
         cast=safe_str(row.get("cast", "")),
@@ -69,42 +71,57 @@ def create_netflix_chunk(row) -> NetflixChunk:
     )
 
 constraints = [
-    "Zmodyfikuj okres w pytaniu (np. zamiast całego roku podaj ostatnie 6 miesięcy)",
-    "Dodaj dodatkowy kontekst, np. informację o gatunku filmu",
-    "Zmień region/pochodzenie (np. pytanie o filmy wyprodukowane w USA vs. inne kraje)",
+    "If there's a time period mentioned in the snippet, modify it slightly (e.g., if the snippet refers to the entire year, change it to 6 months or 1.5 years).",
+    "Add in some irrelevant context (e.g., mention the weather, a random event, or a backstory that isn't in the snippet).",
+    "Change the value of the filter (e.g., if the snippet focuses on results in Canada, change the question to ask about another country or city).",
+    "Rephrase the question to focus on a different aspect of the movie (e.g., instead of asking about the plot, ask about the director’s influence).",
+    "Compare the movie with another similar movie instead of focusing on it alone.",
+    "If a country is mentioned, replace it with a neighboring or culturally similar country.",
+    "Frame the question from a different perspective (e.g., how a critic vs. an audience member might interpret it).",
+    "Introduce an unexpected but plausible detail, such as a fan theory or speculation.",
+    "Instead of asking about the movie directly, ask about the broader genre or trend it belongs to.",
+    "Pose a hypothetical scenario (e.g., 'How would the story change if set in a different decade?').",
+    "If the snippet contains a numerical fact, slightly alter it to test robustness.",
+    "Make the question more open-ended rather than fact-based (e.g., instead of 'What year was it released?', ask 'How did its release impact the industry?').",
 ]
 
-@retry(stop=stop_after_attempt(1), wait=wait_fixed(10))
+@retry(stop=stop_after_attempt(2), wait=wait_fixed(10))
 async def generate_question(chunk: NetflixChunk, sem: Semaphore) -> ChunkEval:
     async with sem:
-        chunk_text = f"{chunk.title}. {chunk.description}"
+        chunk_text = f"""
+        {chunk.title}, {chunk.release_year}, {chunk.country}, {chunk.type}
+        {chunk.description}
+        """
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {
                     "role": "user",
                     "content": """
-                    Wygeneruj przykładowe pytanie, na które można odpowiedzieć na podstawie poniższych informacji o filmie.
+                    Generate a sample question that can be answered based on the following movie information.
 
-                    Informacje:
-                    {chunk_text}
+                    Information:
+                    {snippet}
 
-                    Zasady:
-                    - Nie wykorzystuj bezpośrednio konkretnych wartości, jeśli to możliwe.
-                    - Pytanie powinno mieć maksymalnie dwa zdania.
-                    - Dostosuj pytanie wg ograniczenia: "{chosen_constraint}".
-                    - Pytanie musi być odpowiednie, aby mogło zostać wyszukane za pomocą odpowiednich danych o filmie.
-                    """}],
+                    Rules:
+                    - Avoid directly using specific values if possible.
+                    - The question should have at most two sentences.
+                    - Adjust the question according to the following constraint: "{chosen_constraint}".
+                    - The question must be suitable for querying the movie data effectively.
+                    """
+                }
+            ],
             response_model=Question,
             context={
                 "snippet": chunk_text,
-                "constraint": random.choice(constraints)},
+                "chosen_constraint": random.choice(constraints)
+            },
         )
 
         return ChunkEval(
             show_id=chunk.show_id,
             question=response.question,
-            chunk=f"{chunk.title}. {chunk.description}",
+            chunk=chunk_text,
         )
 
 async def main(
@@ -125,5 +142,5 @@ async def main(
 if __name__ == '__main__':
     df = load_netflix_data()
     chunks = [create_netflix_chunk(row) for index, row in df.iterrows()]
-    results = asyncio.run(main(concurrency_limit=10, num_samples=2, limit=1))
+    results = asyncio.run(main(concurrency_limit=10, num_samples=2, limit=10))
     print(results)
