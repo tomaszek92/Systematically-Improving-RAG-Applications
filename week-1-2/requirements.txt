@@ -1,0 +1,10 @@
+braintrust
+cohere
+kagglehub
+lancedb
+openai
+pandas
+pydantic
+python-dotenv
+rich
+typing
